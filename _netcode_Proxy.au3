@@ -31,31 +31,67 @@
 #ce
 
 Global $__net_proxy_arTCPSockets[0]
-Global $__net_proxy_arUDPSockets[0]
+;~ Global $__net_proxy_arUDPSockets[0]
+Global $__net_proxy_bConsoleLogging = False ; logs interactions with the proxy to the console
+Global $__net_proxy_bFileLogging = False ; logs every resolved and connected ip address to a file
+Global $__net_proxy_sFileLogging = @ScriptDir & "\proxy_iplog.txt" ; path of the log, file will not be overwritten, everything is append
+
+
 
 Func _netcode_SetupTCPProxy($sProxyIP, $sProxyPort)
+	; init _netcode
 	__netcode_Init()
+
+	; startup listener
 	Local $hProxySocket = _netcode_TCPListen($sProxyPort, $sProxyIP, Default, 200, True)
 	if $hProxySocket = False Then Return SetError(1)
 
+	; if we could then add it as a proxy socket
 	__netcode_AddTCPProxySocket($hProxySocket)
 
 	Return $hProxySocket
 EndFunc
 
 Func _netcode_StopTCPProxy($hProxySocket)
+	; remove the socket
 	If Not __netcode_RemoveTCPProxySocket($hProxySocket) Then Return SetError(@error)
+
+	; and disconnect it
 	__netcode_TCPCloseSocket($hProxySocket)
 	Return True
 EndFunc
 
 #cs
+	-> see __netcode_ProxyHttpOnConnection() for an example
+
 	$nWhere
 		1 = on connection
+			right after a connection is accepted this $sCallback will be called. Your callback has to return
+			the IP and Port to let the proxy know where to connect.
+			Local $arReturn[2] = [ip,port]
+			you can also return data, the data will be send to the destination right after the proxy connected to it
+			Local $arReturn[3] = [ip,port,data]
+
+			if you couldnt yet determine the ip and port then -> Return Null <- instead of waiting.
+			your function will be called again in the next loop.
+
+			if the client disconnected aka you get @error from __netcode_ProxyRecvPackages() then -> Return False <-
+			This will let the proxy know that we want to remove that socket.
+
+
 		2 = on disconnect
+			~ todo
 		3 = between a data send
+			~ todo
+
+	$sCallback
+		This is your Callback function
+		it has to have 2 params.
+		1 - Socket = is the socket of the new client
+		2 - $nWhere = will either be 1, 2 or 3 and tells you where. Can be usefull if you want to code the middlemans into a single func.
 #ce
 Func _netcode_ProxySetMiddleman($hProxySocket, $nWhere, $sCallback)
+
 	Switch $nWhere
 		Case 1
 			_storageS_Overwrite($hProxySocket, '_netcode_proxy_OnConnection', $sCallback)
@@ -68,8 +104,21 @@ Func _netcode_ProxySetMiddleman($hProxySocket, $nWhere, $sCallback)
 
 
 	EndSwitch
+
 EndFunc
 
+Func _netcode_ProxySetConsoleLogging($bEnable)
+	if Not IsBool($bEnable) Then Return SetError(1, 0, False) ; $bEnable needs to be of type Bool (True or False)
+	$__net_proxy_bConsoleLogging = $bEnable
+EndFunc
+
+Func _netcode_ProxySetFileLogging($bEnable, $sLogPath = $__net_proxy_sFileLogging)
+	if Not IsBool($bEnable) Then Return SetError(1, 0, False) ; $bEnable needs to be of type Bool (True or False)
+	$__net_proxy_bFileLogging = $bEnable
+	$__net_proxy_sFileLogging = $sLogPath
+EndFunc
+
+; ~ todo
 Func _netcode_ProxySetIPList($hProxySocket, $vIPList, $bIPListForIncomming, $bIPListIsWhitelist)
 
 EndFunc
@@ -80,7 +129,7 @@ EndFunc
 
 Func _netcode_ProxyLoop($bLoopForever = False)
 	Local $nTCPArSize = UBound($__net_proxy_arTCPSockets)
-	Local $nUDPArSize = UBound($__net_proxy_arUDPSockets)
+;~ 	Local $nUDPArSize = UBound($__net_proxy_arUDPSockets)
 	Local $nSendBytes = 0
 
 	Do
@@ -130,54 +179,66 @@ Func __netcode_RemoveTCPProxySocket($hProxySocket)
 EndFunc
 
 Func __netcode_ProxyHttpOnConnection($hSocket, $nWhere)
+
+	; try to receive required data from the socket to determine the ip and port
 	Local $sPackage = __netcode_ProxyRecvPackages($hSocket)
+
+	; if the socket disconnected then Return False and have the proxy remove the socket
 	if @error Then Return False
+
+	; if there isnt yet anything in the buffer then Return Null to try receiving in the next loop again
 	if $sPackage = '' Then Return Null
 
+	; if we received something then split it by @CRLF
 	Local $arPackage = StringSplit($sPackage, @CRLF, 1 + 2)
 
+	; determine the type of the data "GET, POST, or CONNECT"
 	if StringLeft($arPackage[0], 3) = "GET" Then
+		; resolve the ip and port
 		$sIP = StringTrimLeft($arPackage[0], 4)
 		$sIP = StringLeft($sIP, StringInStr($sIP, ' '))
 
 		$arIPAndPort = __netcode_ProxyURLToIPAndPort($sIP, 80)
+
+		; add the packet to the [2] to have it send to the destination after we connected
 		ReDim $arIPAndPort[3]
 		$arIPAndPort[2] = $sPackage
 
 	ElseIf StringLeft($arPackage[0], 4) = "POST" Then
+		; resolve the ip and port
 		$sIP = StringTrimLeft($arPackage[0], 5)
 		$sIP = StringLeft($sIP, StringInStr($sIP, ' '))
 
 		$arIPAndPort = __netcode_ProxyURLToIPAndPort($sIP, 80)
+
+		; add the packet to the [2] to have it send to the destination after we connected
 		ReDim $arIPAndPort[3]
 		$arIPAndPort[2] = $sPackage
 
 	ElseIf StringLeft($arPackage[0], 7) = "CONNECT" Then
+		; resolve the ip and port
 		$sIPAndPort = StringTrimLeft($arPackage[0], 8)
 		$sIPAndPort = StringLeft($sIPAndPort, StringInStr($sIPAndPort, ' '))
 
 		$arIPAndPort = __netcode_ProxyURLToIPAndPort($sIPAndPort)
 
-;~ 		__netcode_TCPSend($hSocket, StringToBinary($sPackage))
+		; send a 200 back to the socket
 		__netcode_TCPSend($hSocket, StringToBinary("HTTP/1.1 200 Connection Established" & @CRLF & @CRLF))
 
-;~ 		ReDim $arIPAndPort[3]
-;~ 		$arIPAndPort[2] = $sPackage
-
 	Else
+		; if we got something else but a "GET, POST or CONNECT"
 
 		Return False
 	EndIf
 
+	; if we couldnt resolve a ip and port then Return False and therefore remove the socket
 	if $arIPAndPort[0] = "" Then
-;~ 		_ArrayDisplay($arPackage)
 		Return False
 	EndIf
+
+	; if we could resolve a ip and port then return it
 	Return $arIPAndPort
 EndFunc
-
-;~ TCPStartup()
-;~ __netcode_ProxyURLToIPAndPort("http://ocsp.sca1b.amazontrust.com/", 80)
 
 Func __netcode_ProxyURLToIPAndPort(Const $sURL, $nForcePort = 0, $bForcePortIsOptional = True)
 	Local Static $arStripStrings[0][2]
@@ -212,15 +273,17 @@ Func __netcode_ProxyURLToIPAndPort(Const $sURL, $nForcePort = 0, $bForcePortIsOp
 	$arIPAndPort[1] = Number($arIPAndPort[1])
 
 	; uncomment if you want to log every URL. Its for Debug. Doesnt work on the MultiProxy example.
-	; Log will be written to @ScriptDir & "\debuglog.txt"
-;~ 	__netcode_ProxyURLToIPAndPort_Debug($sURL, $sURLFormatted, $arIPAndPort[0], $arIPAndPort[1])
+	__netcode_ProxyURLToIPAndPort_Debug($sURL, $sURLFormatted, $arIPAndPort[0], $arIPAndPort[1])
 
 	Return $arIPAndPort
 EndFunc
 
 Func __netcode_ProxyURLToIPAndPort_Debug($sURL, $sURLFormatted, $sIP, $sPort)
+	if Not $__net_proxy_bFileLogging Then Return
+	if $__net_proxy_sFileLogging = "" Then Return
+
 	Local Static $hOpen = 0
-	If $hOpen = 0 Then $hOpen = FileOpen(@ScriptDir & "\debuglog.txt", 2)
+	If $hOpen = 0 Then $hOpen = FileOpen($__net_proxy_sFileLogging, 1)
 
 	FileWrite($hOpen, @HOUR & ':' & @MIN & ':' & @SEC & '.' & @MSEC & @TAB & @TAB _
 			& $sIP & ':' & $sPort & @TAB & @TAB & '<-' & @TAB _
@@ -458,6 +521,8 @@ EndFunc
 #ce
 Func __netcode_ProxyDebug($hProxySocket, $nInformation, $Element0, $Element1 = "", $Element2 = "")
 ;~ 	if $nInformation <> 10 Then Return
+
+	if Not $__net_proxy_bConsoleLogging Then Return
 
 	Switch $nInformation
 		Case 1
