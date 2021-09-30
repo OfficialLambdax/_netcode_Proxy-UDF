@@ -6,6 +6,9 @@
 #include "..\..\_netcode_Proxy.au3"
 
 AutoItSetOption("TCPTimeout", 100)
+_netcode_ProxySetConsoleLogging(True)
+;~ _netcode_ProxySetFileLogging(True)
+
 
 Local $hProxySocket = _netcode_SetupTCPProxy('0.0.0.0', 8080)
 _netcode_ProxySetHttpProxy($hProxySocket)
