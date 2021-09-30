@@ -116,6 +116,7 @@ _RelayLoop(True)
 
 
 Func _Proxy(Const $nPort)
+	_netcode_ProxySetConsoleLogging(True)
 	Local $hProxySocket = _netcode_SetupTCPProxy('0.0.0.0', $nPort)
 	_netcode_ProxySetHttpProxy($hProxySocket)
 	_netcode_ProxyLoop(True)
