@@ -35,6 +35,7 @@ Global $__net_proxy_arTCPSockets[0]
 Global $__net_proxy_bConsoleLogging = False ; logs interactions with the proxy to the console
 Global $__net_proxy_bFileLogging = False ; logs every resolved and connected ip address to a file
 Global $__net_proxy_sFileLogging = @ScriptDir & "\proxy_iplog.txt" ; path of the log, file will not be overwritten, everything is append
+Global Const $__net_proxy_UDFVersion = "0.1.1"
 
 
 
@@ -140,7 +141,7 @@ Func _netcode_ProxyLoop($bLoopForever = False)
 			; ~ todo relay UDP
 		Next
 
-		if $nSendBytes = 0 Then Sleep(10)
+;~ 		if $nSendBytes = 0 Then Sleep(10)
 	Until Not $bLoopForever
 EndFunc
 
@@ -322,6 +323,10 @@ Func __netcode_AddTCPProxyClient($hProxySocket, $arClients, $hSocket, $hSocketTo
 	$arClients[$nArSize][1] = $hSocketTo
 
 	_storageS_Overwrite($hProxySocket, '_netcode_proxy_Clients', $arClients)
+
+	; add temp storage vars
+	_storageS_Overwrite($hSocket, '_netcode_proxy_buffer', '')
+	_storageS_Overwrite($hSocketTo, '_netcode_proxy_buffer', '')
 EndFunc
 
 Func __netcode_RemoveTCPProxyClient($hProxySocket, $arClients, $nIndex)
@@ -329,6 +334,10 @@ Func __netcode_RemoveTCPProxyClient($hProxySocket, $arClients, $nIndex)
 
 	__netcode_TCPCloseSocket($arClients[$nIndex][0])
 	__netcode_TCPCloseSocket($arClients[$nIndex][1])
+
+	; tidy temp storage vars
+	_storageS_TidyGroupVars($arClients[$nIndex][0])
+	_storageS_TidyGroupVars($arClients[$nIndex][1])
 
 	$arClients[$nIndex][0] = $arClients[$nArSize - 1][0]
 	$arClients[$nIndex][1] = $arClients[$nArSize - 1][1]
@@ -468,13 +477,22 @@ EndFunc
 
 Func __netcode_ProxyRecvAndSend($hSocket, $hSocketTo)
 ;~ 	Local $sPackages = __netcode_ProxyRecvPackages($hSocket)
-	Local $sPackages = __netcode_RecvPackages($hSocket)
-	if @error Then Return False
-;~ 	ConsoleWrite($hSocket & @TAB & $sPackages & @CRLF)
-	if $sPackages = '' Then Return True
 
-	Local $nBytes = __netcode_TCPSend($hSocketTo, StringToBinary($sPackages))
-	$nError = @error
+	Local $sPackages = _storageS_Read($hSocket, '_netcode_proxy_buffer')
+	if $sPackages = "" Then
+		$sPackages = __netcode_RecvPackages($hSocket)
+		if @error Then Return False
+		if $sPackages = '' Then Return True
+
+		_storageS_Overwrite($hSocket, '_netcode_proxy_buffer', $sPackages)
+	EndIf
+
+	Local $nBytes = __netcode_TCPSend($hSocketTo, StringToBinary($sPackages), False)
+	Local $nError = @error
+	if $nError <> 10035 Then
+		_storageS_Overwrite($hSocket, '_netcode_proxy_buffer', '')
+		$nError = 0
+	EndIf
 ;~ 	if $nError Then MsgBox(0, "", $nError)
 	if $nError Then Return False
 

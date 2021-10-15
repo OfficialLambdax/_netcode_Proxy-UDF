@@ -1,0 +1,15 @@
+15.10.2021 (DD/MM/YYYY) 0.1.1
+	Fixes
+		None
+	
+	Changes
+		- The Proxy now makes better use of non blocking sockets. Until this update each 'send' call was repeated until WSAGetLastError no longer returned 10035. Duo to this a slower connection could slow down all other connections because the proxy was stuck in this function. This was changed. The Proxy now keeps recieved data in a temporary buffer until the send of it succeeded. The Proxy also only Receives the next data once this buffer is emptied. So the proxy doesnt accept more data then it can send.
+		
+		- The Proxy will no longer force its eco mode on you. "if $nSendBytes = 0 Then Sleep(10)" from _netcode_ProxyLoop() was removed aka commented.
+		
+		
+	Upgrades
+		- Duo to the changes mentioned above the proxy is better capable to manage a larger amount of connections and data send through them.
+		
+	Remarks
+		- Beaware that the Proxy makes no use of 'select' yet so tunneling thousands of connections through it can become an issue. Besides that sockets used to 'connect' are yet still blocking. So connection attempts from the proxy to the destination will still lag the whole proxy, especially on very slow or not responding servers.
