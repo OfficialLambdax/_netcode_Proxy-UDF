@@ -1,3 +1,39 @@
+29.01.2022 (DD/MM/YYYY) 0.2
+	
+	SCRIPT BREAKING CHANGES
+	THIS VERSION IS AN ENTIRE OVERHAUL
+	
+	Script now requires _netcode_AddonCore.au3
+	
+	This version is much more performant then any of the recent and now fully utilizes non blocking sockets.
+	
+	Known Bugs
+		
+		Minor
+			The http/s proxy example opened with _netcode_Proxy_CreateHttpProxy() has issues with http requests.
+			400 Bad Request.
+			
+		Minor
+			TCPNameToIP() returns in some cases a different ip then where the website actually is.
+
+
+21.11.2021 (DD/MM/YYYY) 0.1.3
+	Additions
+		- _netcode_ProxyClientGetParent() returns the parent Socket of the given Client socket.
+		Usefull to retrieve data saved to the Parent.
+		
+		- The UDF now checks what _netcode_Core version it is running with. And it will warn to Console if the _netcode_Core version is older or newer that the UDF is approved with.
+		
+	Changes
+		- your callback set with _netcode_ProxySetMiddleman() at $nWhere = 1 now also can return a socket.
+		So you can do your own Connect within the callback and then return it in a array at index 0.
+
+
+16.10.2021 (DD/MM/YYYY) 0.1.2
+	Changes
+		- Introduced __netcode_ProxyEventStrippingFix() to make it possible to use stripping
+
+
 16.10.2021 (DD/MM/YYYY) 0.1.1
 	Fixes
 		- Duo to the latest _netcode_Core 0.1.2 update the Proxy will now no longer randomly disconnect sockets.
