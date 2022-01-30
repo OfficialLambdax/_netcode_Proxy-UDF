@@ -2,9 +2,35 @@
 #include "_netcode_AddonCore.au3"
 
 
-Global $__net_Proxy_sAddonVersion = "0.2"
+#cs
+
+	Requires the _netcode_AddonCore.au3 UDF and _netcode_Core.au3 UDF.
+
+	TCP-IPv4, for the time being, only.
+
+	All Sockets are non blocking.
+
+	The proxy will only recv and send data if the send to socket is send ready.
+	It pretty much checks the sockets that have something send to the proxy first
+	and then filters them for the corresponding linked sockets that can be send to.
+
+	So the proxy does not buffer data. Memory usage should therefore be low.
+
+#ce
+
+Global $__net_Proxy_sAddonVersion = "0.2.1"
 
 
+; #FUNCTION# ====================================================================================================================
+; Name ..........: _netcode_Proxy_Startup
+; Description ...: Startsup the Proxy UDF, required to be called.
+; Syntax ........: _netcode_Proxy_Startup()
+; Return values .: True				= Success
+;				 : False			= Already started
+; Modified ......:
+; Remarks .......:
+; Example .......: No
+; ===============================================================================================================================
 Func _netcode_Proxy_Startup()
 	_netcode_Startup()
 
@@ -18,12 +44,32 @@ Func _netcode_Proxy_Startup()
 	Return True
 EndFunc
 
+; #FUNCTION# ====================================================================================================================
+; Name ..........: _netcode_Proxy_Shutdown
+; Description ...: ~ todo
+; Syntax ........: _netcode_Proxy_Shutdown()
+; Parameters ....: None
+; Return values .: None
+; Modified ......:
+; Remarks .......:
+; Example .......: No
+; ===============================================================================================================================
 Func _netcode_Proxy_Shutdown()
 
 ;~ 	__netcode_Addon_Log(1, 2)
 EndFunc
 
 
+; #FUNCTION# ====================================================================================================================
+; Name ..........: _netcode_Proxy_Loop
+; Description ...: Will accept new clients and receive and send data. Needs to be called frequently in order to relay the data.
+; Syntax ........: _netcode_Proxy_Loop([$hSocket = False])
+; Parameters ....: $hSocket             - [optional] When set to a Socket, will only loop the given proxy socket. Otherwise all.
+; Return values .: None
+; Modified ......:
+; Remarks .......:
+; Example .......: No
+; ===============================================================================================================================
 Func _netcode_Proxy_Loop(Const $hSocket = False)
 
 	if $hSocket Then
@@ -42,41 +88,172 @@ Func _netcode_Proxy_Loop(Const $hSocket = False)
 EndFunc
 
 
-; $sPosition
-;	Connect			Gets called on connect (no data got yet received)
-;	Destination		Gets called once the client send the first data, which might contain the destination
-;	Between			Gets called between each send from the incoming to the outgoing and vise versa
-;	Disconnect		Gets called on disconnect
-;
-; Callback functions require always
-;	$hIncomingSocket
-;	$hOutgoingSocket	Socket or Null if there is none yet
-;	$sPosition			Position name
-;	$sData				Data or Null if there is none
+#cs
+
+ Description
+	Each proxy requires to have atleast a connect or a destination middleman.
+	The middleman has to return a destination for the connected client. Otherwise
+	the proxy simply has no clue where to connect to.
+
+	The middleman is ment to process the packet send from the client and to determine the destination from it.
+	Like with a http/s proxy. The browser sends a GET or CONNECT request containing the destination.
+	The Destination middleman then reads that information and returns it to the proxy, which then
+	connects to the given destination, while it also either returns a 200 to the browser or forwards the
+	http request to the destination.
+
+	So generally the proxy should be able to be compatible with any TCP protocol.
+
+	A between middleman can also be used to intercept packets and to modify them.
+
+ Parameters ___________________________________________________________________________________________________________________________________
+
+ $sID
+	A Identifier for the set middleman, like "Socks_5"
+
+ $sCallback
+	The function name
+
+ $sPosition
+	"Connect"			Gets called on connect of a incoming connection (no data got yet received).
+						If you dont determine the destination from a packet then this position is your goto.
+
+	"Destination"		Gets called once the client send the first data, which might contain the destination.
+						Here you proccess the send data and return the destinations IP and Port.
+
+	"Between"			Gets called between each send from the incoming to the outgoing and vise versa.
+						Here you can see whats transmitted between the two clients and log or modify it.
+
+	"Disconnect"		Gets called on disconnect ~ todo
+
+
+ Remarks ______________________________________________________________________________________________________________________________________
+
+
+ Connect callbacks require
+	$hIncomingSocket
+	$sPosition					Position name
+	$sData						Will be Null
+
+ Destination callbacks require
+	$hIncomingSocket
+	$sPosition					Position name | is just present incase you want the connect and destination middleman to be the same function
+	$sData						The data received from the incoming socket that might contain the destination
+
+ Between callbacks require
+	$hSendingSocket				The Socket that wants to send data
+	$hReceivingSocket			The Socket that will get the data
+	$bSendingSocketIsIncoming	True if $hSendingSocket is the incoming socket, False if the outgoing
+	$sData						The data to be relayed
+
+ Disconnect callback requires
+	~ todo
+
+
+	The Middlemans have different use cases.
+
+	Connect middleman
+		Could be used just to get a information about a connection or for logging purposes.
+		But you can also decide to disconnect the socket if you dont like the ip it originates from or for other reasons.
+		Besides that you can also already return a destination.
+
+		Return False 				Will disconnect the socket
+		Return True					Will keep the socket
+		Return $arDestination		See the destination middleman info
+
+	Destination middleman
+		This middleman is ment to proccess a packet from the incoming socket to get the destination address.
+		So this callback will be called once a packet arrived from the client.
+
+		Return False				Will disconnect the socket
+		Return Null					If you couldnt determine a destination from the data. Your func will be called again with the next received packet
+
+		Return $arDestination[2 - 5]
+
+			[0] = IPv4 (IPv6 not supported yet)
+			[1] = Port
+			[2] = (Optional) Data that will be send to the destination once connected to it
+			[3] = (Optional) Data that will be send to the incoming socket
+			[4] = (Must be set if [3] is set) True / False.
+					True	The Data from [3] will be send to the incoming socket once the proxy connected
+							to the destination.
+					False	The Data from [3] will be imidiatly send to the incoming socket.
+
+			Keep $arDestination of size 2 if you only want to tell the proxy the destination.
+			Keep it of size 3 if you want to send data to the destination
+			and only make it of size 5 if you send data to the incoming.
+
+			If you send data to the incoming but not to the destination then leave element [2] empty.
+
+
+	Between middleman
+		This middleman will be called with the data that is received and going to be relayed.
+		You can edit, log or deny the relay.
+
+		Return SetError(1)						Will deny the relay. data will simply be voided.
+		Return SetExtended($nLen, $sData)		(String) Will relay that data. Extended needs to be the BinaryLen() of $sData.
+
+		You always have to return $sData and the len even if you dont do anything to it. Not doing so
+		will cause bugs.
+
+		If you want to disconnect one and / or the other socket then simply call __netcode_TCPCloseSocket(socket) and Return SetError(1).
+		The proxy will detect the disconnect in the loop.
+
+
+	Disconnect middleman
+		~ todo
+
+
+
+	General advice
+		Code your middleman callback functions to be as non blocking as possible. Not doing so can and will cause lag.
+
+#ce
 Func _netcode_Proxy_RegisterMiddleman($sID, $sCallback, $sPosition)
 
-	if __netcode_Addon_GetVar($sID, 'Callback') Then
-		__netcode_Addon_Log(1, 4, $sID, $sPosition)
-		Return SetError(1, 0, False) ; middleman with this id is already known
-	EndIf
-
-	__netcode_Addon_SetVar($sID, 'Callback', $sCallback)
-	__netcode_Addon_SetVar($sID, 'Position', $sPosition)
-
-	__netcode_Addon_Log(1, 3, $sID, $sPosition)
-
-	Return True
+	Local $bReturn = __netcode_Addon_RegisterMiddleman($sID, $sCallback, $sPosition, 1)
+	Return SetError(@error, @extended, $bReturn)
 
 EndFunc
 
 
+; #FUNCTION# ====================================================================================================================
+; Name ..........: _netcode_Proxy_RemoveMiddleman
+; Description ...: Removes the middleman
+; Syntax ........: _netcode_Proxy_RemoveMiddleman($sID)
+; Parameters ....: $sID                 - The middleman ID
+; Return values .: None
+; Modified ......:
+; Remarks .......: Clients already connected stay connected.
+; Example .......: No
+; ===============================================================================================================================
 Func _netcode_Proxy_RemoveMiddleman($sID)
-	_storageS_TidyGroupVars($sID)
-	__netcode_Addon_Log(1, 5, $sID)
+
+	__netcode_Addon_RemoveMiddleman($sID, 1)
+
 EndFunc
 
 
-; $sConOrDest_MiddlemanID NEEDS to either be a connect or destination middleman
+; #FUNCTION# ====================================================================================================================
+; Name ..........: _netcode_Proxy_Create
+; Description ...: Starts a proxy parent (aka listener) and returns the socket.
+; Syntax ........: _netcode_Proxy_Create($sOpenOnIP, $nOpenOnPort, $sConOrDest_MiddlemanID[, $sDestMiddlemanID = False[,
+;                  $sBetweenMiddlemanID = False[, $sDisconnectMiddlemanID = False]]])
+; Parameters ....: $sOpenOnIP           - Proxy is open to this IP (set 0.0.0.0 for everyone)
+;                  $nOpenOnPort         - Port to listen
+;                  $sConOrDest_MiddlemanID- Connect or Destination Middleman ID
+;                  $sDestMiddlemanID    - [optional] Destination Middleman ID
+;                  $sBetweenMiddlemanID - [optional] Between Middleman ID
+;                  $sDisconnectMiddlemanID- [optional] Disconnect Middleman ID
+; Return values .: Socket				= If success
+;				 : False				= If not
+; Errors ........: 1					- The $sConOrDest_MiddlemanID is neither a Connect nor a Destination middleman
+;				 : 2					- The listener could not be started (called _netcode_Proxy_Startup() before?)
+; Extendeds .....: see msdn https://docs.microsoft.com/de-de/windows/win32/winsock/windows-sockets-error-codes-2
+; Modified ......:
+; Remarks .......: The Destination, Between or Disconect middlemans dont need to be set if they are not used. They
+;				 : can also be set or changed later with _netcode_Proxy_SetMiddleman()
+; Example .......: No
+; ===============================================================================================================================
 Func _netcode_Proxy_Create($sOpenOnIP, $nOpenOnPort, $sConOrDest_MiddlemanID, $sDestMiddlemanID = False, $sBetweenMiddlemanID = False, $sDisconnectMiddlemanID = False)
 
 	; check middleman position
@@ -98,7 +275,9 @@ Func _netcode_Proxy_Create($sOpenOnIP, $nOpenOnPort, $sConOrDest_MiddlemanID, $s
 	__netcode_Addon_AddToSocketList('ProxyParents', $hSocket)
 
 	; create socket lists
+	__netcode_Addon_CreateSocketLists_InOutRel($hSocket)
 
+	#cs
 	; destination needs yet to be determined, incoming socket is removed once thats known
 	__netcode_Addon_CreateSocketList($hSocket & '_IncomingPending')
 
@@ -107,6 +286,7 @@ Func _netcode_Proxy_Create($sOpenOnIP, $nOpenOnPort, $sConOrDest_MiddlemanID, $s
 
 	; once the outgoing pending is successfully connected, both the incoming and outgoing are added to this
 	__netcode_Addon_CreateSocketList($hSocket)
+	#ce
 
 
 	; specify the middlemans
@@ -123,38 +303,65 @@ Func _netcode_Proxy_Create($sOpenOnIP, $nOpenOnPort, $sConOrDest_MiddlemanID, $s
 EndFunc
 
 
+; #FUNCTION# ====================================================================================================================
+; Name ..........: _netcode_Proxy_Close
+; Description ...: ~ todo
+; Syntax ........: _netcode_Proxy_Close(Const $hSocket)
+; Parameters ....: $hSocket             - [const] The Socket
+; Return values .: None
+; Modified ......:
+; Remarks .......:
+; Example .......: No
+; ===============================================================================================================================
 Func _netcode_Proxy_Close(Const $hSocket)
 
 ;~ 	__netcode_Addon_Log(1, 9, $hSocket)
 EndFunc
 
 
-; sets a middleman either to a parent, where each client then uses it, or to a specific client (in- and outgoing).
-; could also be used to change the current set middleman.
+; #FUNCTION# ====================================================================================================================
+; Name ..........: _netcode_Proxy_SetMiddleman
+; Description ...: Sets or changes a middleman for the given parent or client socket.
+; Syntax ........: _netcode_Proxy_SetMiddleman(Const $hSocket, $sID)
+; Parameters ....: $hSocket             - [const] The parent or client socket
+;                  $sID                 - The middleman ID
+; Return values .: True					= If success
+;				 : False				= If not
+; Errors ........: 1					- Middleman is unknown
+; Modified ......:
+; Remarks .......:
+; Example .......: No
+; ===============================================================================================================================
 Func _netcode_Proxy_SetMiddleman(Const $hSocket, $sID)
 
-	Local $sPosition = __netcode_Addon_GetVar($sID, 'Position')
-	if Not $sPosition Then
-		__netcode_Addon_Log(1, 11, $sID)
-		Return SetError(1, 0, False)
-	EndIf
-
-	Local $sCallback = __netcode_Addon_GetVar($sID, 'Callback')
-
-	__netcode_Addon_SetVar($hSocket, $sPosition, $sCallback)
-
-	__netcode_Addon_Log(1, 10, $sID, $sPosition)
-
-	Return True
+	Local $bReturn = __netcode_Addon_SetMiddleman($hSocket, $sID, 1)
+	Return SetError(@error, @extended, $bReturn)
 
 EndFunc
 
 
+; #FUNCTION# ====================================================================================================================
+; Name ..........: _netcode_Proxy_CreateHttpProxy
+; Description ...: Creates a HTTP/S Proxy and returns the Socket
+; Syntax ........: _netcode_Proxy_CreateHttpProxy($sOpenOnIP, $nOpenOnPort)
+; Parameters ....: $sOpenOnIP           - Open at this IP (set 0.0.0.0 to open for everyone)
+;                  $nOpenOnPort         - Listen at port
+; Return values .: Socket				= If success
+;				 : False				= If not
+; Errors ........: 1					- Could not create listener
+; Extendes ......: See msdn https://docs.microsoft.com/de-de/windows/win32/winsock/windows-sockets-error-codes-2
+; Modified ......:
+; Remarks .......: The http/s proxy is not officially supported, it is more of a very old example to show of the proxy UDF.
+;				 : It has Bugs. Some sites cannot be reached duo to TCPNameToIP returning a wrong IP.
+;				 : And http sites often return Error 400 "bad request". Thats not a issue with the UDF but with the destination
+;				 : middleman being poorly written by me.
+; Example .......: No
+; ===============================================================================================================================
 Func _netcode_Proxy_CreateHttpProxy($sOpenOnIP, $nOpenOnPort)
 	_netcode_Proxy_RegisterMiddleman("http_s", "__netcode_Proxy_Http_DestinationMiddleman", "Destination")
 
 	Local $hSocket = _netcode_Proxy_Create($sOpenOnIP, $nOpenOnPort, "http_s")
-	If Not $hSocket Then Return SetError(1, 0, False)
+	If Not $hSocket Then Return SetError(1, @error, False)
 
 	Return $hSocket
 EndFunc
@@ -169,375 +376,20 @@ Func __netcode_Proxy_Loop(Const $hSocket)
 
 	; check for new incoming connections, one per loop
 	Local $hIncomingSocket = __netcode_TCPAccept($hSocket)
-	If $hIncomingSocket <> -1 Then __netcode_Proxy_NewIncoming($hSocket, $hIncomingSocket)
+	If $hIncomingSocket <> -1 Then __netcode_Addon_NewIncomingMiddleman($hSocket, $hIncomingSocket, 1)
 
 	; check the incoming connection middlemans for destinations
-	__netcode_Proxy_CheckIncomingPending($hSocket)
+	__netcode_Addon_CheckIncomingPendingMiddleman($hSocket, 1)
 
 	; check the outgoing pending connections
-	__netcode_Proxy_CheckOutgoingPending($hSocket)
+	__netcode_Addon_CheckOutgoingPendingMiddleman($hSocket, 1)
 
 	; recv and send
-	__netcode_Proxy_RecvAndSend($hSocket)
+	__netcode_Addon_RecvAndSendMiddleman($hSocket, 1)
 
 EndFunc
 
-; adds the socket to the IncomingPending list only when there either is no middleman or the middleman doesnt yet tells us a destination
-Func __netcode_Proxy_NewIncoming(Const $hSocket, $hIncomingSocket)
-
-	__netcode_Addon_Log(1, 21, $hIncomingSocket)
-
-	; inherit parents preset middlemans
-	Local $sID = __netcode_Addon_GetVar($hSocket, 'Connect')
-	__netcode_Addon_SetVar($hIncomingSocket, 'Connect', $sID)
-	__netcode_Addon_SetVar($hIncomingSocket, 'Destination', __netcode_Addon_GetVar($hSocket, 'Destination'))
-	__netcode_Addon_SetVar($hIncomingSocket, 'Between', __netcode_Addon_GetVar($hSocket, 'Between'))
-	__netcode_Addon_SetVar($hIncomingSocket, 'Disconnect', __netcode_Addon_GetVar($hSocket, 'Disconnect'))
-
-	; run middleman if present
-	Local $vMiddlemanReturn = ""
-	If $sID Then
-		$vMiddlemanReturn = Call(__netcode_Addon_GetVar($sID, 'Callback'), $hIncomingSocket, Null, 'Connect', Null)
-		If @error Then
-			; show error
-			__netcode_Addon_Log(1, 20, $sID)
-			__netcode_Proxy_DisconnectAndRemoveClients($hSocket, $hIncomingSocket, False)
-		EndIf
-	EndIf
-
-	; add to IncomingPending list if not destination is yet set
-	If IsArray($vMiddlemanReturn) Then
-		__netcode_Proxy_ConnectOutgoing($hSocket, $hIncomingSocket, $vMiddlemanReturn, $sID)
-	Else
-		__netcode_Addon_AddToSocketList($hSocket & '_IncomingPending', $hIncomingSocket)
-	EndIf
-
-EndFunc
-
-Func __netcode_Proxy_CheckIncomingPending(Const $hSocket)
-
-	; get socket list
-	Local $arClients = __netcode_Addon_GetSocketList($hSocket & '_IncomingPending')
-	Local $nArSize = UBound($arClients)
-
-	If $nArSize = 0 Then Return
-
-	Local $sID = "", $sCallback = "", $vMiddlemanReturn, $sPackage = ""
-
-	; for each incoming pending client
-	; note: each socket could have a different middleman set to it, so have to read it for each socket instead of just once
-	For $i = 0 To $nArSize - 1
-
-		; get destination callback
-		$sCallback = __netcode_Addon_GetVar(__netcode_Addon_GetVar($arClients[$i], 'Destination'), 'Callback')
-
-		; if there is none then disconnect and remove the socket
-		If Not $sCallback Then
-			__netcode_Addon_Log(1, 22, $hSocket)
-			__netcode_Proxy_DisconnectAndRemoveClients($hSocket, $arClients[$i], False)
-			ContinueLoop
-		EndIf
-
-		; check the recv buffer
-		$sPackage = __netcode_Addon_RecvPackages($arClients[$i])
-
-		; if the incoming connection disconnected
-		if @error Then
-			__netcode_Addon_Log(1, 23, $arClients[$i])
-			__netcode_Proxy_DisconnectAndRemoveClients($hSocket, $arClients[$i], False)
-			ContinueLoop
-		EndIf
-
-		; if we didnt receive anything
-		if Not @extended Then
-			; check destination timeout
-			; ~ todo
-
-;~ 			__netcode_Addon_Log(1, 26, $arClients[$i])
-
-			ContinueLoop
-		EndIf
-
-		; run the callback if we received something
-		$vMiddlemanReturn = Call($sCallback, $arClients[$i], Null, 'Destination', $sPackage)
-
-		; if the call failed
-		if @error Then
-			__netcode_Addon_Log(1, 24, __netcode_Addon_GetVar($arClients[$i], 'Destination'), $hSocket)
-			__netcode_Proxy_DisconnectAndRemoveClients($hSocket, $arClients[$i], False)
-			ContinueLoop
-		EndIf
-
-		; check return
-		If IsArray($vMiddlemanReturn) Then ; if destination is given
-
-			; connect outgoing
-			__netcode_Proxy_ConnectOutgoing($hSocket, $arClients[$i], $vMiddlemanReturn, __netcode_Addon_GetVar($arClients[$i], 'Destination'))
-
-			; remove from incoming pending list
-			__netcode_Addon_RemoveFromSocketList($hSocket & '_IncomingPending', $arClients[$i])
-
-		ElseIf $vMiddlemanReturn = False Then ; if the middleman says to disconnect
-
-			__netcode_Proxy_DisconnectAndRemoveClients($hSocket, $arClients[$i], False)
-
-		ElseIf $vMiddlemanReturn = Null Then ; if no destination is known yet
-
-			; check destination timeout
-			; ~ todo
-
-;~ 			__netcode_Addon_Log(1, 26, $arClients[$i])
-
-		Else ; invalid return
-
-			; log to console
-			__netcode_Addon_Log(1, 25, __netcode_Addon_GetVar($arClients[$i], 'Destination'), $hSocket)
-
-			__netcode_Proxy_DisconnectAndRemoveClients($hSocket, $arClients[$i], False)
-
-		EndIf
-
-	Next
-EndFunc
-
-Func __netcode_Proxy_ConnectOutgoing(Const $hSocket, $hIncomingSocket, $arDestination, $sID)
-
-	; $arDestination
-	; [0] = IP
-	; [1] = Port
-	; [2] = Send to outgoing (needs to be of type string)
-	; [3] = Send to incoming (needs to be of type string)
-	; [4] = True / False (True = Send when outgoing is connected, False = Send imidiatly)
-
-	Local $nArSize = UBound($arDestination)
-
-	; if the array size is to small
-	if $nArSize < 2 Then
-
-		; log
-		__netcode_Addon_Log(1, 30, $sID, $hSocket)
-
-		; then remove
-		__netcode_Proxy_DisconnectAndRemoveClients($hSocket, $hIncomingSocket)
-		Return
-	EndIf
-
-	Local $hOutgoingSocket = __netcode_TCPConnect($arDestination[0], $arDestination[1], 2, True)
-
-	__netcode_Addon_Log(1, 32, $arDestination[0] & ':' & $arDestination[1])
-
-	; add to outgoing pending list
-	__netcode_Addon_AddToSocketList($hSocket & '_OutgoingPending', $hOutgoingSocket)
-
-	; inheit between and disconnect middleman ids from incoming socket
-	__netcode_Addon_SetVar($hOutgoingSocket, 'Between', __netcode_Addon_GetVar($hOutgoingSocket, 'Between'))
-	__netcode_Addon_SetVar($hOutgoingSocket, 'Disconnect', __netcode_Addon_GetVar($hOutgoingSocket, 'Disconnect'))
-
-	; if there are more elements
-	If $nArSize > 2 Then
-
-		; check the "Send to outgoing" element
-		If $arDestination[2] <> "" Then __netcode_Addon_SetVar($hOutgoingSocket, 'MiddlemanSend', $arDestination[2])
-
-		; check the "Send to incoming" element
-		if $nArSize > 3 Then
-
-			; if there is some but the "True / False" is not set then
-			If $nArSize < 5 Then
-
-				; disconnect and log
-				__netcode_Addon_Log(1, 31, $sID)
-
-				__netcode_Proxy_DisconnectAndRemoveClients($hSocket, $hIncomingSocket, $hOutgoingSocket)
-				Return
-
-				; why? because the proxy cannot assume when the dev ment to send the data.
-				; so instead of hoping for the best and maybe breaking the script, just disconnect and log it as a fatal to the console.
-
-			EndIf
-
-			; check the toggle
-			if $arDestination[4] Then
-				__netcode_Addon_SetVar($hIncomingSocket, 'MiddlemanSend', $arDestination[3])
-			Else
-				__netcode_TCPSend($hIncomingSocket, StringToBinary($arDestination[3]))
-			EndIf
-
-		EndIf
-	EndIf
-
-	; link sockets together
-	__netcode_Addon_SetVar($hIncomingSocket, 'Link', $hOutgoingSocket)
-	__netcode_Addon_SetVar($hOutgoingSocket, 'Link', $hIncomingSocket)
-
-EndFunc
-
-
-Func __netcode_Proxy_CheckOutgoingPending(Const $hSocket)
-
-	Local $arClients = __netcode_Addon_GetSocketList($hSocket & '_OutgoingPending')
-	Local $nArSize = UBound($arClients)
-
-	If $nArSize = 0 Then Return
-
-	; select for Write
-	$arClients = __netcode_SocketSelect($arClients, False)
-	$nArSize = UBound($arClients)
-
-	; if some outgoing connections are connected
-	If $nArSize > 0 Then
-
-		Local $hIncomingSocket = 0
-		Local $sData = ""
-
-		For $i = 0 To $nArSize - 1
-
-			; get incoming socket
-			$hIncomingSocket = __netcode_Addon_GetVar($arClients[$i], 'Link')
-
-			; remove from outgoing pending list
-			__netcode_Addon_RemoveFromSocketList($hSocket & '_OutgoingPending', $arClients[$i])
-
-			; add both sockets to the final list
-			__netcode_Addon_AddToSocketList($hSocket, $arClients[$i])
-			__netcode_Addon_AddToSocketList($hSocket, $hIncomingSocket)
-
-			; check if there is data to send to the outgoing
-			$sData = __netcode_Addon_GetVar($arClients[$i], 'MiddlemanSend')
-			if $sData Then __netcode_TCPSend($arClients[$i], StringToBinary($sData), False)
-
-			; check if there is data to send to the incoming
-			$sData = __netcode_Addon_GetVar($hIncomingSocket, 'MiddlemanSend')
-			if $sData Then __netcode_TCPSend($hIncomingSocket, StringToBinary($sData), False)
-
-			__netcode_Addon_Log(1, 33, $hIncomingSocket, $arClients[$i])
-
-		Next
-
-	EndIf
-
-	; reread the outgoing pending socket list
-	$arClients = __netcode_Addon_GetSocketList($hSocket & '_OutgoingPending')
-	$nArSize = UBound($arClients)
-
-	if $nArSize = 0 Then Return
-
-	; check for connect timeouts
-	For $i = 0 To $nArSize - 1
-
-		; check timeout
-		; ~ todo
-
-;~ 		__netcode_Addon_Log(1, 34, $arClients[$i])
-
-	Next
-
-EndFunc
-
-Func __netcode_Proxy_RecvAndSend(Const $hSocket)
-
-	; get sockets
-	Local $arClients = __netcode_Addon_GetSocketList($hSocket)
-	if UBound($arClients) = 0 Then Return
-
-	; select these that have something received or that are disconnected
-	$arClients = __netcode_SocketSelect($arClients, True)
-	Local $nArSize = UBound($arClients)
-	if $nArSize = 0 Then Return
-
-	; get the linked sockets
-	Local $arSockets[$nArSize]
-	For $i = 0 To $nArSize - 1
-		$arSockets[$i] = __netcode_Addon_GetVar($arClients[$i], 'Link')
-	Next
-
-	; filter the linked sockets, for those that are send ready
-	$arClients = __netcode_SocketSelect($arSockets, False)
-	Local $nArSize = UBound($arClients)
-
-	if $nArSize = 0 Then Return
-
-	Local $sData = ""
-	Local $hLinkSocket = 0
-	Local $nLen = 0
-	Local $sCallback = ""
-
-	; recv and send
-	For $i = 0 To $nArSize - 1
-
-		; get the socket that had something to be received
-		$hLinkSocket = __netcode_Addon_GetVar($arClients[$i], 'Link')
-
-		; get the recv buffer
-		$sData = __netcode_Addon_RecvPackages($hLinkSocket)
-
-		; check if we disconnected
-		if @error Then
-			__netcode_Proxy_DisconnectAndRemoveClients($hSocket, $hLinkSocket, $arClients[$i])
-			ContinueLoop
-		EndIf
-
-		$nLen = @extended
-		If $nLen Then
-
-			; get middleman callback
-			$sCallback = __netcode_Addon_GetVar(__netcode_Addon_GetVar($hLinkSocket, 'Between'), 'Callback')
-			If $sCallback Then
-				$sData = Call($sCallback, $hLinkSocket, $sData)
-
-				; if either the call failed or if the middleman sais it doesnt want to forward the packet
-				if @error Then
-					__netcode_Addon_Log(1, 36, $hLinkSocket, $arClients[$i], __netcode_Addon_GetVar($hLinkSocket, 'Between'))
-					ContinueLoop
-				EndIf
-
-				$nLen = @extended
-			EndIf
-
-			; send the data non blocking
-			__netcode_TCPSend($arClients[$i], StringToBinary($sData), False)
-
-			__netcode_Addon_Log(1, 35, $hLinkSocket, $arClients[$i], $nLen)
-
-		EndIf
-
-	Next
-
-EndFunc
-
-
-
-
-; could maybe be a shared func
-Func __netcode_Proxy_DisconnectAndRemoveClients(Const $hSocket, $hIncomingSocket, $hOutgoingSocket = False)
-
-	__netcode_Addon_Log(1, 99, $hIncomingSocket)
-	if $hOutgoingSocket Then __netcode_Addon_Log(1, 99, $hOutgoingSocket)
-
-	; disconnect
-	__netcode_TCPCloseSocket($hIncomingSocket)
-	if $hOutgoingSocket Then __netcode_TCPCloseSocket($hOutgoingSocket)
-
-	; remove from lists
-	__netcode_Addon_RemoveFromSocketList($hSocket & '_IncomingPending', $hIncomingSocket)
-	If $hOutgoingSocket Then __netcode_Addon_RemoveFromSocketList($hSocket & '_OutgoingPending', $hOutgoingSocket)
-
-	__netcode_Addon_RemoveFromSocketList($hSocket, $hIncomingSocket)
-	If $hOutgoingSocket Then __netcode_Addon_RemoveFromSocketList($hSocket, $hOutgoingSocket)
-
-	; tidy vars of the sockets
-	_storageS_TidyGroupVars($hIncomingSocket)
-	If $hOutgoingSocket Then _storageS_TidyGroupVars($hOutgoingSocket)
-
-EndFunc
-
-; $arDestination
-; [0] = IP
-; [1] = Port
-; [2] = Send to outgoing (needs to be of type string)
-; [3] = Send to incoming (needs to be of type string)
-; [4] = True / False (True = Send when outgoing is connected, False = Send imidiatly)
-Func __netcode_Proxy_Http_DestinationMiddleman($hIncomingSocket, $hOutgoingSocket, $sPosition, $sPackages)
+Func __netcode_Proxy_Http_DestinationMiddleman($hIncomingSocket, $sPosition, $sPackages)
 
 	; split the package by @CRLF
 	Local $arPackage = StringSplit($sPackages, @CRLF, 1 + 2)
@@ -623,9 +475,6 @@ Func __netcode_Proxy_URLToIPAndPort(Const $sURL, $nForcePort = 0, $bForcePortIsO
 
 	$arIPAndPort[0] = TCPNameToIP($arIPAndPort[0])
 	$arIPAndPort[1] = Number($arIPAndPort[1])
-
-	; uncomment if you want to log every URL. Its for Debug. Doesnt work on the MultiProxy example.
-;~ 	__netcode_ProxyURLToIPAndPort_Debug($sURL, $sURLFormatted, $arIPAndPort[0], $arIPAndPort[1])
 
 	Return $arIPAndPort
 EndFunc

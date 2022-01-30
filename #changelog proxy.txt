@@ -1,3 +1,11 @@
+30.01.2022 (DD/MM/YYYY) 0.2.1
+
+	SCRIPT BREAKING CHANGES
+	
+	Considering that the Traffic tab in Github shows that zero users yet downloaded or viewed the Proxy UDF,
+	my best guess is that i dont have to write what exactly needs to be changed.
+
+
 29.01.2022 (DD/MM/YYYY) 0.2
 	
 	SCRIPT BREAKING CHANGES

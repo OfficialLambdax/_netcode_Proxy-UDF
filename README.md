@@ -9,8 +9,14 @@ https://github.com/OfficialLambdax/_netcode_Core-UDF
 
 The same describition of the Core UDF applies to here. This UDF is in its concept phase and alot of things are missing and subject to change.
 
-It adds Proxy functionalities. Proxies need to be configured manually. It is not a specific http/s proxy. It proxies every traffic to the said destination and vise versa. So the client connecting to the Proxy can or needs to tell the Proxy where to connect to, this can either be a Browser or any other application. However the UDF only comes with basic support for HTTP/S as of yet. Any other system like a SOCKS processor needs to be manually coded and the UDF is ment to be used in that configurable way.
+The Proxy UDF is not a specific HTTP/S proxy, it is the proxy that you want it to be. Meaning that you can implement your own methods on
+processing a client packets to determine the destination. Generally the UDF should be capable to be compatible with any TCP protocol.
 
-The proxy makes fully use of non blocking sockets.
+The UDF features a variety of middlemans. One of which is the "Between" middleman where you can intercept the transmitted data to either just view it or to modify it. The UDF wasnt ment to be used as a Man in the middle software, but it is very much possible. Certain protocols may just require that the transmitted packets are manipulated, thats why this feature is implemented.
 
-Speedtest.net and other tests over HTTP/S through the Proxy showed zero to just a very small lag in Ping and Down- and Upling speeds (tested with a 200mbit lane and got the whole 200mbits through the proxy).
+All sockets are entirely non blocking.
+
+Transmitting 200mbit/s through the proxy just took 2 % of CPU power on my end user computer.
+So it might be possible for the proxy to relay 1 Gbit/s or more. I could not test that yet.
+But considering that the Proxy UDF is very light weight, it should be possible.
+
