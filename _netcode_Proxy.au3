@@ -18,7 +18,10 @@
 
 #ce
 
-Global $__net_Proxy_sAddonVersion = "0.2.1"
+Global $__net_Proxy_sAddonVersion = "0.2.2"
+Global Const $__net_Proxy_sNetcodeOfficialRepositoryURL = "https://github.com/OfficialLambdax/_netcode_Proxy-UDF"
+Global Const $__net_Proxy_sNetcodeOfficialRepositoryChangelogURL = "https://github.com/OfficialLambdax/_netcode_Proxy-UDF/blob/main/%23changelog%20proxy.txt"
+Global Const $__net_Proxy_sNetcodeVersionURL = "https://raw.githubusercontent.com/OfficialLambdax/_netcode-UDF/main/versions/_netcode_Proxy.version"
 
 
 ; #FUNCTION# ====================================================================================================================
@@ -36,6 +39,8 @@ Func _netcode_Proxy_Startup()
 
 	Local $arParents = __netcode_Addon_GetSocketList('ProxyParents')
 	If IsArray($arParents) Then Return SetError(1, 0, False) ; proxy already started
+
+	__netcode_UDFVersionCheck($__net_Proxy_sNetcodeVersionURL, $__net_Proxy_sNetcodeOfficialRepositoryURL, $__net_Proxy_sNetcodeOfficialRepositoryChangelogURL, '_netcode_Proxy', $__net_Proxy_sAddonVersion)
 
 	__netcode_Addon_CreateSocketList('ProxyParents')
 
@@ -276,17 +281,6 @@ Func _netcode_Proxy_Create($sOpenOnIP, $nOpenOnPort, $sConOrDest_MiddlemanID, $s
 
 	; create socket lists
 	__netcode_Addon_CreateSocketLists_InOutRel($hSocket)
-
-	#cs
-	; destination needs yet to be determined, incoming socket is removed once thats known
-	__netcode_Addon_CreateSocketList($hSocket & '_IncomingPending')
-
-	; only contains outgoing pending sockets
-	__netcode_Addon_CreateSocketList($hSocket & '_OutgoingPending')
-
-	; once the outgoing pending is successfully connected, both the incoming and outgoing are added to this
-	__netcode_Addon_CreateSocketList($hSocket)
-	#ce
 
 
 	; specify the middlemans
