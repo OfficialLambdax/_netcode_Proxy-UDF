@@ -20,3 +20,8 @@ Transmitting 200mbit/s through the proxy just took 2 % of CPU power on my end us
 So it might be possible for the proxy to relay 1 Gbit/s or more. I could not test that yet.
 But considering that the Proxy UDF is very light weight, it should be possible.
 
+<p align="center">
+    <img src="images/what is my proxy.png" width="80" />
+    <img src="images/whatismyipaddress.png" width="80" />
+    <img src="images/whoer.png" width="80" />
+</p>
