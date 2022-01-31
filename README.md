@@ -23,5 +23,5 @@ But considering that the Proxy UDF is very light weight, it should be possible.
 <p align="center">
     <img src="images/what is my proxy.png" width="500" />
     <img src="images/whatismyipaddress.png" width="200" />
-    <img src="images/whoer.png" width="400" />
+    <img src="images/whoer.png" width="500" />
 </p>
