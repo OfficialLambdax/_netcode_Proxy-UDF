@@ -81,10 +81,7 @@ EndFunc
 ; Errors ........: 1					- Could not create listener
 ; Extendes ......: See msdn https://docs.microsoft.com/de-de/windows/win32/winsock/windows-sockets-error-codes-2
 ; Modified ......:
-; Remarks .......: The http/s proxy is not officially supported, it is more of a very old example to show of the proxy UDF.
-;				 : It has Bugs. Some sites cannot be reached duo to TCPNameToIP returning a wrong IP.
-;				 : And http sites often return Error 400 "bad request". Thats not a issue with the UDF but with the destination
-;				 : middleman being poorly written by me.
+; Remarks .......: Thanks to Moombas@Autoit.de for the plain and easy fix for the previous bugs with the HTTP/s functions.
 ; Example .......: No
 ; ===============================================================================================================================
 Func _netcode_Proxy_CreateHttpProxy($sOpenOnIP, $nOpenOnPort)
@@ -154,7 +151,8 @@ EndFunc
 Func __netcode_Proxy_URLToIPAndPort(Const $sURL, $nForcePort = 0, $bForcePortIsOptional = True)
 	Local Static $arStripStrings[0][2]
 	if UBound($arStripStrings) = 0 Then
-		Local $sStripStrings = "https://|http://|wss://|www.|ww3."
+;~ 		Local $sStripStrings = "https://|http://|wss://|www.|ww3."
+		Local $sStripStrings = "https://|http://"
 		Local $arSplitStrings = StringSplit($sStripStrings, '|', 1)
 
 		ReDim $arStripStrings[$arSplitStrings[0]][2]
