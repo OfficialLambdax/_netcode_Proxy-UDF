@@ -1,3 +1,27 @@
+15.02.2022 (DD/MM/YYYY) 0.2.3
+
+	SCRIPT BREAKING CHANGES
+	
+	Added
+		- _netcode_Proxy_SetLogging(). Can be used to enable or disable the logging to the console.
+
+	Changed
+		- The "Connect" and "Destination" middleman can now return a Socket instead of just a IP and Port.
+		
+		- The "Between" Middleman now also gets the BinaryLen() of the Data as a param.
+		
+	Removed
+		- The HTTP/S functions from the plain UDF. It got moved to the "simple http_s proxy" example.
+		
+	What you need to change.
+	
+		If you use the "Between" middleman then add a new Param to your Callback function: $nLen.
+		It will contain the BinaryLen() of the $sData param.
+		
+		If you use the HTTP/S functions, then implement them from the "simple http_s proxy" example.
+		They are no longer present in the UDF.
+		
+
 31.01.2022 (DD/MM/YYYY) 0.2.2
 
 	Added

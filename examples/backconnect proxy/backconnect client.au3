@@ -5,19 +5,69 @@
 #EndRegion ;**** Directives created by AutoIt3Wrapper_GUI ****
 #include "..\..\_netcode_Proxy.au3"
 
-; startup _netcode proxy
+; startup _netcode and the proxy udf
 _netcode_Proxy_Startup()
 $__net_bTraceEnable = False
 
-; create http proxy at port 8080
-Local $hSocket = _netcode_Proxy_CreateHttpProxy("0.0.0.0", 8080)
+; set default events
+_netcode_PresetEvent('connection', "_Event_Void")
+_netcode_PresetEvent('disconnected', "_Event_Void")
 
-; loop it
-While True
-	_netcode_Proxy_Loop()
+; connect to proxy server
+Local $hMyClient = _netcode_TCPConnect('127.0.0.1', 1225)
+If Not $hMyClient Then Exit MsgBox(16, "Client Error", "Could not connect to Proxy Server")
 
+; give it socket specific events
+_netcode_SetEvent($hMyClient, 'ConnectBack', "_Event_ConnectBack")
+
+; tell the server that we are the proxy client
+_netcode_TCPSend($hMyClient, 'IsProxyClient')
+
+; start the proxy parent
+Global $__hProxyParent = _netcode_Proxy_CreateHttpProxy('127.0.0.1', 1226)
+If Not $__hProxyParent Then Exit
+
+; main
+While _netcode_Loop("000")
+	_netcode_Proxy_Loop($__hProxyParent)
 	Sleep(10)
 WEnd
+
+
+
+; the server will request that we connect a new socket
+Func _Event_ConnectBack($hSocket, $sID)
+
+	; connect to the proxy server non blocking
+	Local $hConnectBackSocket = _netcode_TCPConnect('127.0.0.1', 1225, False, "", "", True)
+
+	; give it a socket specifc event
+	_netcode_SetEvent($hConnectBackSocket, 'connection', "_Event_Connection")
+
+	; quo data to be send once the 'netcode' stage is reached
+	_netcode_TCPSend($hConnectBackSocket, 'ConnectedBack', $sID)
+
+EndFunc
+
+; the data quo is triggered before the 'netcode' stage is called.
+; so we force the sending and then release the socket and add it to the proxy
+Func _Event_Connection($hSocket, $sStage)
+	If $sStage <> 'netcode' Then Return
+
+	; force sending
+	__netcode_SendPacketQuo()
+
+	; release socket from _netcode
+	_netcode_ReleaseSocket($hSocket)
+
+	; add to proxy as incoming socket
+	__netcode_Addon_NewIncomingMiddleman($__hProxyParent, $hSocket, 1)
+
+EndFunc
+
+; data that goes here is voided
+Func _Event_Void($Void, $Void1 = Null, $Void2 = Null)
+EndFunc
 
 
 ; #FUNCTION# ====================================================================================================================

@@ -18,7 +18,7 @@
 
 #ce
 
-Global $__net_Proxy_sAddonVersion = "0.2.2"
+Global $__net_Proxy_sAddonVersion = "0.2.3"
 Global Const $__net_Proxy_sNetcodeOfficialRepositoryURL = "https://github.com/OfficialLambdax/_netcode_Proxy-UDF"
 Global Const $__net_Proxy_sNetcodeOfficialRepositoryChangelogURL = "https://github.com/OfficialLambdax/_netcode_Proxy-UDF/blob/main/%23changelog%20proxy.txt"
 Global Const $__net_Proxy_sNetcodeVersionURL = "https://raw.githubusercontent.com/OfficialLambdax/_netcode-UDF/main/versions/_netcode_Proxy.version"
@@ -95,10 +95,13 @@ EndFunc
 
 #cs
 
+ Name
+	_netcode_Proxy_RegisterMiddleman()
+
  Description
 	Each proxy requires to have atleast a connect or a destination middleman.
 	The middleman has to return a destination for the connected client. Otherwise
-	the proxy simply has no clue where to connect to.
+	the proxy simply has no clue where to connect the clinet to.
 
 	The middleman is ment to process the packet send from the client and to determine the destination from it.
 	Like with a http/s proxy. The browser sends a GET or CONNECT request containing the destination.
@@ -106,9 +109,8 @@ EndFunc
 	connects to the given destination, while it also either returns a 200 to the browser or forwards the
 	http request to the destination.
 
-	So generally the proxy should be able to be compatible with any TCP protocol.
-
-	A between middleman can also be used to intercept packets and to modify them.
+	So generally the proxy should be able to be compatible with any TCP protocol, because it can intercept and alter any transmission
+	at any time.
 
  Parameters ___________________________________________________________________________________________________________________________________
 
@@ -123,7 +125,8 @@ EndFunc
 						If you dont determine the destination from a packet then this position is your goto.
 
 	"Destination"		Gets called once the client send the first data, which might contain the destination.
-						Here you proccess the send data and return the destinations IP and Port.
+						Here you proccess the send data and return the destinations IP and Port, or a Socket
+						(either pending or not).
 
 	"Between"			Gets called between each send from the incoming to the outgoing and vise versa.
 						Here you can see whats transmitted between the two clients and log or modify it.
@@ -134,21 +137,25 @@ EndFunc
  Remarks ______________________________________________________________________________________________________________________________________
 
 
+ Callbacks are Functions of your own that get Called in the set Position.
+
  Connect callbacks require
-	$hIncomingSocket
-	$sPosition					Position name
-	$sData						Will be Null
+	$hIncomingSocket			Contains the Socket that got created for a Incoming connection (like a browser connected to the Proxy).
+	$sPosition					Position name of the Middleman. "Connect" In this case.
+	$sData						Will be Null in this case.
 
  Destination callbacks require
-	$hIncomingSocket
-	$sPosition					Position name | is just present incase you want the connect and destination middleman to be the same function
-	$sData						The data received from the incoming socket that might contain the destination
+	$hIncomingSocket			- As above -
+	$sPosition					Position name. "Destination" in this case.
+								Is just present incase you want the connect and destination middleman to be in the same function.
+	$sData						The data received from the incoming socket that might contain the destination.
 
  Between callbacks require
 	$hSendingSocket				The Socket that wants to send data
 	$hReceivingSocket			The Socket that will get the data
 	$bSendingSocketIsIncoming	True if $hSendingSocket is the incoming socket, False if the outgoing
 	$sData						The data to be relayed
+	$nLen						The BinaryLen of the data
 
  Disconnect callback requires
 	~ todo
@@ -168,14 +175,19 @@ EndFunc
 	Destination middleman
 		This middleman is ment to proccess a packet from the incoming socket to get the destination address.
 		So this callback will be called once a packet arrived from the client.
+		If you use a proxy to offload from a server and where you store, non user specific, data that is requested alot then here you
+		could already decide to send it the stored data instead of forwarding the request to the server that you try to offload.
+		Or you could change the destination to a specific Offload server.
+		Aka this Proxy could be used as a load balancer, that knows the load of each destination and then decides to go to the most not loaded
+		server.
 
 		Return False				Will disconnect the socket
-		Return Null					If you couldnt determine a destination from the data. Your func will be called again with the next received packet
+		Return Null					If you couldnt determine a destination from the data yet. Your func will be called again with the next received packet
 
 		Return $arDestination[2 - 5]
 
-			[0] = IPv4 (IPv6 not supported yet)
-			[1] = Port
+			[0] = IPv4 (IPv6 not supported yet) Or Socket (either pending or already connected)
+			[1] = Port Or Empty if [0] is a Socket
 			[2] = (Optional) Data that will be send to the destination once connected to it
 			[3] = (Optional) Data that will be send to the incoming socket
 			[4] = (Must be set if [3] is set) True / False.
@@ -189,6 +201,9 @@ EndFunc
 
 			If you send data to the incoming but not to the destination then leave element [2] empty.
 
+			Https for example requires that a "HTTP/1.1 200 Connection Established" packet is send back, once the connection to the destination is up.
+			Other protocols might also require such a function. This is why [4] exists.
+
 
 	Between middleman
 		This middleman will be called with the data that is received and going to be relayed.
@@ -198,7 +213,7 @@ EndFunc
 		Return SetExtended($nLen, $sData)		(String) Will relay that data. Extended needs to be the BinaryLen() of $sData.
 
 		You always have to return $sData and the len even if you dont do anything to it. Not doing so
-		will cause bugs.
+		will result in the sending of a String "False".
 
 		If you want to disconnect one and / or the other socket then simply call __netcode_TCPCloseSocket(socket) and Return SetError(1).
 		The proxy will detect the disconnect in the loop.
@@ -323,7 +338,8 @@ EndFunc
 ;				 : False				= If not
 ; Errors ........: 1					- Middleman is unknown
 ; Modified ......:
-; Remarks .......:
+; Remarks .......: Usefull if you only want to middleman a specific socket for a specific time. Or if you want to change
+;                : to another middleman.
 ; Example .......: No
 ; ===============================================================================================================================
 Func _netcode_Proxy_SetMiddleman(Const $hSocket, $sID)
@@ -335,36 +351,30 @@ EndFunc
 
 
 ; #FUNCTION# ====================================================================================================================
-; Name ..........: _netcode_Proxy_CreateHttpProxy
-; Description ...: Creates a HTTP/S Proxy and returns the Socket
-; Syntax ........: _netcode_Proxy_CreateHttpProxy($sOpenOnIP, $nOpenOnPort)
-; Parameters ....: $sOpenOnIP           - Open at this IP (set 0.0.0.0 to open for everyone)
-;                  $nOpenOnPort         - Listen at port
-; Return values .: Socket				= If success
-;				 : False				= If not
-; Errors ........: 1					- Could not create listener
-; Extendes ......: See msdn https://docs.microsoft.com/de-de/windows/win32/winsock/windows-sockets-error-codes-2
+; Name ..........: _netcode_Proxy_SetLogging
+; Description ...: Enables or Disables the Logging to the Console
+; Syntax ........: _netcode_Proxy_SetLogging($bSet)
+; Parameters ....: $bSet                - True / False (Default = True)
+; Return values .: None
 ; Modified ......:
-; Remarks .......: The http/s proxy is not officially supported, it is more of a very old example to show of the proxy UDF.
-;				 : It has Bugs. Some sites cannot be reached duo to TCPNameToIP returning a wrong IP.
-;				 : And http sites often return Error 400 "bad request". Thats not a issue with the UDF but with the destination
-;				 : middleman being poorly written by me.
+; Remarks .......:
 ; Example .......: No
 ; ===============================================================================================================================
-Func _netcode_Proxy_CreateHttpProxy($sOpenOnIP, $nOpenOnPort)
-	_netcode_Proxy_RegisterMiddleman("http_s", "__netcode_Proxy_Http_DestinationMiddleman", "Destination")
+Func _netcode_Proxy_SetLogging($bSet)
 
-	Local $hSocket = _netcode_Proxy_Create($sOpenOnIP, $nOpenOnPort, "http_s")
-	If Not $hSocket Then Return SetError(1, @error, False)
+	If Not IsBool($bSet) Then Return False
 
-	Return $hSocket
+	__netcode_Addon_SetLogging(2, $bSet)
+	Return True
+
 EndFunc
 
 
-
-
-
-
+; Barrier. Internals Below. No Functions are ment to be used individually but some probably can.
+; =============================================================================================================================================
+; =============================================================================================================================================
+; =============================================================================================================================================
+; =============================================================================================================================================
 
 Func __netcode_Proxy_Loop(Const $hSocket)
 
@@ -381,94 +391,4 @@ Func __netcode_Proxy_Loop(Const $hSocket)
 	; recv and send
 	__netcode_Addon_RecvAndSendMiddleman($hSocket, 1)
 
-EndFunc
-
-Func __netcode_Proxy_Http_DestinationMiddleman($hIncomingSocket, $sPosition, $sPackages)
-
-	; split the package by @CRLF
-	Local $arPackage = StringSplit($sPackages, @CRLF, 1 + 2)
-
-	; determine the type of the data "GET, POST, or CONNECT"
-	if StringLeft($arPackage[0], 3) = "GET" Then
-		; resolve the ip and port
-		$sIP = StringTrimLeft($arPackage[0], 4)
-		$sIP = StringLeft($sIP, StringInStr($sIP, ' '))
-
-		$arIPAndPort = __netcode_Proxy_URLToIPAndPort($sIP, 80)
-
-		; add the packet to the [2] to have it send to the destination after we connected
-		ReDim $arIPAndPort[3]
-		$arIPAndPort[2] = $sPackages
-
-	ElseIf StringLeft($arPackage[0], 4) = "POST" Then
-		; resolve the ip and port
-		$sIP = StringTrimLeft($arPackage[0], 5)
-		$sIP = StringLeft($sIP, StringInStr($sIP, ' '))
-
-		$arIPAndPort = __netcode_Proxy_URLToIPAndPort($sIP, 80)
-
-		; add the packet to the [2] to have it send to the destination after we connected
-		ReDim $arIPAndPort[3]
-		$arIPAndPort[2] = $sPackages
-
-	ElseIf StringLeft($arPackage[0], 7) = "CONNECT" Then
-		; resolve the ip and port
-		$sIPAndPort = StringTrimLeft($arPackage[0], 8)
-		$sIPAndPort = StringLeft($sIPAndPort, StringInStr($sIPAndPort, ' '))
-
-		$arIPAndPort = __netcode_Proxy_URLToIPAndPort($sIPAndPort)
-
-		; send a 200 back to the socket once the connection to the destination succeeded
-		ReDim $arIPAndPort[5]
-		$arIPAndPort[3] = "HTTP/1.1 200 Connection Established" & @CRLF & @CRLF
-		$arIPAndPort[4] = True
-
-	Else
-		; if we got something else but a "GET, POST or CONNECT"
-
-		Return False
-	EndIf
-
-	; if we couldnt resolve a ip and port then Return False and therefore remove the socket
-	if $arIPAndPort[0] = "" Then
-		Return False
-	EndIf
-
-	; if we could resolve a ip and port then return it
-	Return $arIPAndPort
-EndFunc
-
-Func __netcode_Proxy_URLToIPAndPort(Const $sURL, $nForcePort = 0, $bForcePortIsOptional = True)
-	Local Static $arStripStrings[0][2]
-	if UBound($arStripStrings) = 0 Then
-		Local $sStripStrings = "https://|http://|wss://|www.|ww3."
-		Local $arSplitStrings = StringSplit($sStripStrings, '|', 1)
-
-		ReDim $arStripStrings[$arSplitStrings[0]][2]
-
-		For $i = 0 To $arSplitStrings[0] - 1
-			$arStripStrings[$i][0] = $arSplitStrings[$i + 1]
-			$arStripStrings[$i][1] = StringLen($arSplitStrings[$i + 1])
-		Next
-	EndIf
-
-	Local $sURLFormatted = $sURL
-	For $i = 0 To UBound($arStripStrings) - 1
-		if StringLeft($sURLFormatted, $arStripStrings[$i][1]) = $arStripStrings[$i][0] Then
-			$sURLFormatted = StringTrimLeft($sURLFormatted, $arStripStrings[$i][1])
-		EndIf
-	Next
-
-	if StringInStr($sURLFormatted, '/') Then $sURLFormatted = StringLeft($sURLFormatted, StringInStr($sURLFormatted, '/') - 1)
-
-	Local $arIPAndPort = StringSplit($sURLFormatted, ':', 1 + 2)
-	if UBound($arIPAndPort) = 1 And $nForcePort = 0 Then Return False ; no port
-	if UBound($arIPAndPort) = 1 Then ReDim $arIPAndPort[2]
-	if $arIPAndPort[1] = "" Then $arIPAndPort[1] = $nForcePort
-	if Not $bForcePortIsOptional Then $arIPAndPort[1] = $nForcePort
-
-	$arIPAndPort[0] = TCPNameToIP($arIPAndPort[0])
-	$arIPAndPort[1] = Number($arIPAndPort[1])
-
-	Return $arIPAndPort
 EndFunc
