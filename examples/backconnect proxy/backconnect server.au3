@@ -42,7 +42,7 @@ Func _RelayProxy_ConAndDestMiddleman($hIncomingSocket, $sPosition, $sData)
 	; if its the destination position then
 	if $sPosition == 'Destination' Then
 		; then save the data
-		_storageG_Append($hIncomingSocket, 'DataToOutgoing', $sData)
+		_storageGO_Append($hIncomingSocket, 'DataToOutgoing', $sData)
 
 		; and return Null to let the proxy know that we dont want to disconnect yet
 		Return Null
@@ -56,6 +56,8 @@ Func _RelayProxy_ConAndDestMiddleman($hIncomingSocket, $sPosition, $sData)
 
 	; otherwsie request a connect from the proxy client
 	Local $sID = __netcode_RandomPW(5, 3)
+	_storageGO_CreateGroup($sID)
+
 	__netcode_Addon_SetVar($hIncomingSocket, 'ID', $sID)
 	__netcode_Addon_SetVar($sID, 'ID', $hIncomingSocket)
 
@@ -76,7 +78,7 @@ Func _Event_ConnectedBack($hSocket, $sID)
 	_netcode_ReleaseSocket($hSocket)
 
 	; create destination array
-	Local $sData = _storageG_Read($hIncomingSocket, 'DataToOutgoing')
+	Local $sData = _storageGO_Read($hIncomingSocket, 'DataToOutgoing')
 	If Not $sData Then
 		Local $arDestination[2] = [$hSocket,""]
 	Else
@@ -88,6 +90,8 @@ Func _Event_ConnectedBack($hSocket, $sID)
 
 	; since the incoming is still listed as just a incoming we now remove it from there
 	__netcode_Addon_RemoveFromIncomingSocketList($__hMyRelayProxyParent, $hIncomingSocket)
+
+	_storageGO_DestroyGroup($sID)
 
 EndFunc
 
