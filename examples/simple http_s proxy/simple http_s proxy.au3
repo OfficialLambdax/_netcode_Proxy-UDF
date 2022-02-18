@@ -102,7 +102,7 @@ Func __netcode_Proxy_URLToIPAndPort(Const $sURL, $nForcePort = 0, $bForcePortIsO
 	Local Static $arStripStrings[0][2]
 	if UBound($arStripStrings) = 0 Then
 ;~ 		Local $sStripStrings = "https://|http://|wss://|www.|ww3."
-		Local $sStripStrings = "https://|http://"
+		Local $sStripStrings = "https://|http://|wss://"
 		Local $arSplitStrings = StringSplit($sStripStrings, '|', 1)
 
 		ReDim $arStripStrings[$arSplitStrings[0]][2]
