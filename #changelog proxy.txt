@@ -1,3 +1,9 @@
+15.02.2022 (DD/MM/YYYY) 0.2.3.1
+
+	Fixed
+		- _netcode_Proxy_SetLogging() setting the logging toggle for the wrong addon.
+
+
 15.02.2022 (DD/MM/YYYY) 0.2.3
 
 	SCRIPT BREAKING CHANGES

@@ -18,7 +18,7 @@
 
 #ce
 
-Global $__net_Proxy_sAddonVersion = "0.2.3"
+Global $__net_Proxy_sAddonVersion = "0.2.3.1"
 Global Const $__net_Proxy_sNetcodeOfficialRepositoryURL = "https://github.com/OfficialLambdax/_netcode_Proxy-UDF"
 Global Const $__net_Proxy_sNetcodeOfficialRepositoryChangelogURL = "https://github.com/OfficialLambdax/_netcode_Proxy-UDF/blob/main/%23changelog%20proxy.txt"
 Global Const $__net_Proxy_sNetcodeVersionURL = "https://raw.githubusercontent.com/OfficialLambdax/_netcode-UDF/main/versions/_netcode_Proxy.version"
@@ -101,7 +101,7 @@ EndFunc
  Description
 	Each proxy requires to have atleast a connect or a destination middleman.
 	The middleman has to return a destination for the connected client. Otherwise
-	the proxy simply has no clue where to connect the clinet to.
+	the proxy simply has no clue where to connect the client to.
 
 	The middleman is ment to process the packet send from the client and to determine the destination from it.
 	Like with a http/s proxy. The browser sends a GET or CONNECT request containing the destination.
@@ -364,7 +364,7 @@ Func _netcode_Proxy_SetLogging($bSet)
 
 	If Not IsBool($bSet) Then Return False
 
-	__netcode_Addon_SetLogging(2, $bSet)
+	__netcode_Addon_SetLogging(1, $bSet)
 	Return True
 
 EndFunc
